@@ -1,18 +1,21 @@
-package com.henricoleodra.springreactiveredis.repository;
+package com.henricoleodra.springreactiveredis.persistence;
 
 import com.henricoleodra.springreactiveredis.entity.User;
+import com.henricoleodra.springreactiveredis.repository.UserRepository;
 import org.reactivestreams.Publisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.redis.core.ReactiveHashOperations;
 import org.springframework.data.redis.core.ReactiveRedisOperations;
+import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
-public class UserRepoImpl implements UserRepository{
+@Repository
+public class UserRepoImpl implements UserRepository {
 
     private final static String KEY = "USERS";
 
@@ -26,7 +29,7 @@ public class UserRepoImpl implements UserRepository{
     }
 
     @Override
-    public Mono<User> findById(String id){
+    public Mono<User> findById(String id) {
         return hashOperations.get(KEY, id);
     }
 
@@ -37,11 +40,11 @@ public class UserRepoImpl implements UserRepository{
 
     @Override
     public Mono<User> save(User user) {
-        if(user.getUsername().isEmpty() || user.getEmail().isEmpty()) {
+        if(user.getUsername().isEmpty() || user.getEmail().isEmpty())
             return Mono.error(new IllegalArgumentException("Cannot be saved: username and email are required, but one or both is empty."))
                     .thenReturn(user);
-        }
-        if(user.getId() == null || user.getId().isEmpty()) {
+
+        if (user.getId() == null || user.getId().isEmpty()) {
             String userId = UUID.randomUUID().toString().replaceAll("-", "");
             user.setId(userId);
             user.setVersion(0);
@@ -52,22 +55,20 @@ public class UserRepoImpl implements UserRepository{
         } else {
             return findById(user.getId())
                     .flatMap(u -> {
-                        if(u.getVersion() != user.getVersion()) {
+                        if (u.getVersion() != user.getVersion()) {
                             return Mono.error(
                                     new OptimisticLockingFailureException(
-                                            "This record has already been updated erlier by another object."
-                                    )
-                            );
-                        }
-                        else {
+                                            "This record has already been updated earlier by another object."));
+                        } else {
                             user.setVersion(user.getVersion() + 1);
+
                             return Mono.defer(() -> {
                                 Mono<Boolean> exists = Mono.just(false);
 
-                                if(!u.getUsername().equals(user.getUsername())){
+                                if (!u.getUsername().equals(user.getUsername())) {
                                     exists = existsByUsername(user.getUsername());
                                 }
-                                if(!u.getEmail().equals(user.getEmail())){
+                                if (!u.getEmail().equals(user.getEmail())) {
                                     exists = existsByEmail(user.getEmail());
                                 }
 
@@ -82,9 +83,9 @@ public class UserRepoImpl implements UserRepository{
     }
 
     @Override
-    public Mono<User> findByUsername(String userName) {
+    public Mono<User> findByUsername(String username) {
         return hashOperations.values(KEY)
-                .filter(u -> u.getUsername().equals(userName))
+                .filter(u -> u.getUsername().equals(username))
                 .singleOrEmpty();
     }
 
@@ -137,6 +138,9 @@ public class UserRepoImpl implements UserRepository{
         return hashOperations.remove(KEY, id).then();
     }
 
+
+    //Others... Implements the following methods for your business logic
+
     @Override
     public <S extends User> Flux<S> saveAll(Iterable<S> iterable) {
         return null;
@@ -182,16 +186,39 @@ public class UserRepoImpl implements UserRepository{
         return null;
     }
 
+
+    // private utility method to add new user if not exist with username and email
     private Mono<User> addOrUpdateUser(User user, Mono<Boolean> exists) {
         return exists.flatMap(exist -> {
-            if(exist) {
-                return Mono.error(new DuplicateKeyException("Duplicate key, Username: " + user.getUsername() + " or Email: " + user.getEmail() + " exists."));
-            }
-            else {
-                return hashOperations.put(KEY, user.getId(), user)
-                        .map(isSaved -> user);
-            }
-        })
+                    if (exist) {
+                        return Mono.error(new DuplicateKeyException("Duplicate key, Username: " +
+                                user.getUsername() + " or Email: " + user.getEmail() + " exists."));
+                    } else {
+                        return hashOperations.put(KEY, user.getId(), user)
+                                .map(isSaved -> user);
+                    }
+                })
                 .thenReturn(user);
     }
+    /*
+    private Mono<User> addNewUser(User user) {
+        //email and username should be unique
+        return existsByUsername(user.getUsername())
+                .mergeWith(existsByEmail(user.getEmail()))
+                .any(b -> b)
+                .flatMap(exists -> {
+                    if (exists) {
+                        return Mono.error(new DuplicateKeyException("Duplicate key, Username: " +
+                                user.getUsername() + " or Email: " + user.getEmail() + " exists."));
+                    } else {
+                        String userId = UUID.randomUUID().toString().replaceAll("-", "");
+                        user.setId(userId);
+                        user.setVersion(0);
+                        return hashOperations.put(KEY, user.getId(), user)
+                                .map(isSaved -> user);
+                    }
+                })
+                .thenReturn(user);
+    }*/
+
 }
